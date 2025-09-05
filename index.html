@@ -382,10 +382,53 @@ body::before{
       a.muted = isMuted;
       if(isMuted){ a.setAttribute('muted',''); } else { a.removeAttribute('muted'); }
     });
+  // เพิ่มบรรทัดเหล่านี้ ↓↓↓
+  window.__AUDIO__ = window.__AUDIO__ || {};
+  window.__AUDIO__.muted = isMuted;
+  // ↑↑↑
     muteBtn.setAttribute('aria-pressed', String(isMuted));
     muteBtn.textContent = isMuted ? '🔇' : '🔊';
   }
   muteBtn.addEventListener('click', () => applyMute(!isMuted));
+})();
+</script>
+
+<script>
+/* ===== Audio unlock + shared mute state ===== */
+(function(){
+  // โครงเก็บสถานะเสียงแบบแชร์ทั่วหน้า
+  window.__AUDIO__ = window.__AUDIO__ || { muted:false, unlocked:false };
+
+  // ซิงก์สถานะเริ่มต้นจาก <audio> ที่มีในหน้า
+  function syncFromDOM(){
+    const any = document.querySelector('audio');
+    window.__AUDIO__.muted = !!(any && any.muted);
+  }
+  syncFromDOM();
+
+  // ปลดล็อกเสียง (เรียกตอนมีการคลิกของผู้ใช้)
+  window.__AUDIO__.unlock = async function unlockAudio(){
+    if (window.__AUDIO__.unlocked) return;
+    try{
+      const a = document.getElementById('hitSound');
+      if (a){
+        const wasPaused = a.paused;
+        const prevTime = a.currentTime;
+        a.volume = 0.01;              // เบา ๆ เพื่อแค่กระตุ้นระบบเสียง
+        await a.play().catch(()=>{});
+        a.pause();
+        a.currentTime = prevTime;
+        if(!wasPaused){ a.play().catch(()=>{}); }
+      }
+      window.__AUDIO__.unlocked = true;
+    }catch(_){}
+  };
+
+  // จับคลิกใด ๆ บนหน้าจอ → ลองปลดล็อกเสียง + อัปเดตสถานะ
+  document.addEventListener('click', () => {
+    window.__AUDIO__?.unlock?.();
+    syncFromDOM();
+  }, {capture:true});
 })();
 </script>
 
@@ -561,8 +604,35 @@ body::before{
   function randInt(min,max){return Math.floor(rand(min,max+1))}
 
   function playHit(){
-    try { const a = hitSound.cloneNode(true); a.volume = 1; a.src = hitSound.src; a.play().catch(()=>{}); } catch(e){}
-  }
+  try {
+    // เคารพ mute กลาง
+    if (window.__AUDIO__ && window.__AUDIO__.muted) return;
+
+    const base = hitSound;
+    if (!base || !base.src) return;
+
+    // ใช้ instance เดิมก่อน (ลดโอกาสโดน policy)
+    if (base.paused) {
+      base.currentTime = 0;
+      base.volume = 1;
+      base.muted = false;
+      base.play().catch(()=>{});
+      return;
+    }
+
+    // ต้องซ้อนเสียง → ใช้ clone แต่ "ใส่ DOM ชั่วคราว"
+    const a = base.cloneNode(true);
+    a.src = base.src;
+    a.volume = 1;
+    a.muted = false;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.play().catch(()=>{}).finally(()=>{
+      setTimeout(()=>a.remove(), 1500);
+    });
+  } catch(e){}
+}
+
 
   let correctDeck = [], wrongDeck = [];
   let seenRound = new Set();
@@ -981,6 +1051,7 @@ body::before{
 
   if(startBtn){
     startBtn.addEventListener('click', () => {
+window.__AUDIO__?.unlock?.();
       startBtn.style.display = 'none';
       let n = 3; countdownEl.textContent = n; countdownEl.style.display = 'block';
       const itv = setInterval(() => {
@@ -999,6 +1070,7 @@ body::before{
 
     levelBtns.forEach(btn=>{
       btn.addEventListener('click', ()=>{
+window.__AUDIO__?.unlock?.();
         const idx = parseInt(btn.getAttribute('data-level'),10);
         if (Number.isNaN(idx)) return;
 
@@ -1454,6 +1526,7 @@ fitCanvas();
 }
 
 camBtn.addEventListener('click', async ()=>{
+window.__AUDIO__?.unlock?.();
   if(!stream){
     try{ await startCamera(); }
     catch(err){ camBtn.textContent = '📷 กล้อง: ไม่ได้รับอนุญาต'; camBtn.disabled = true; }
@@ -1464,9 +1537,7 @@ camBtn.addEventListener('click', async ()=>{
 
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && stream) stopCamera(); });
 </script>
-
 </body>
 </html>
-
 
 
